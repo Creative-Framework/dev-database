@@ -1,0 +1,24 @@
+{
+  "name": "dev-database",
+  "version": "0.0.3-beta",
+  "description": "A high-performance, lightweight npm package that offers a fast and efficient way to perform database operations using JSON files. It's designed for developers who need a quick, easy-to-use solution for storing and retrieving data. Now with enhanced speed and asynchronous operations, it’s perfect for both small-scale projects and lightweight Discord bots.  ",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Creative-Framework/dev-database.git"
+  },
+  "keywords": [
+    "Database",
+    "AmtiXDev",
+    "Dev-DataBase"
+  ],
+  "author": "AmtiXDev",
+  "license": "MIT",
+  "dependencies": {
+    "fs": "^0.0.1-security",
+    "path": "^0.12.7"
+  }
+}
