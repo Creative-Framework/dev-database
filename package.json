@@ -1,24 +1,60 @@
 {
   "name": "dev-database",
-  "version": "0.0.3-beta",
-  "description": "A high-performance, lightweight npm package that offers a fast and efficient way to perform database operations using JSON files. It's designed for developers who need a quick, easy-to-use solution for storing and retrieving data. Now with enhanced speed and asynchronous operations, it’s perfect for both small-scale projects and lightweight Discord bots.  ",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "A high-performance, typed JSON file-based database with events, collections, dot notation, TTL, math/array operations, and zero dependencies. Perfect for Discord bots, small projects, and prototyping.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "clean": "rmdir /s /q dist 2>nul || true",
+    "rebuild": "npm run clean && npm run build"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/Creative-Framework/dev-database.git"
   },
   "keywords": [
-    "Database",
-    "AmtiXDev",
-    "Dev-DataBase"
+    "database",
+    "json",
+    "json-database",
+    "db",
+    "storage",
+    "key-value",
+    "lightweight",
+    "typescript",
+    "discord",
+    "discord-bot",
+    "collections",
+    "events",
+    "ttl",
+    "dot-notation",
+    "nosql",
+    "embedded-database",
+    "file-database"
   ],
-  "author": "AmtiXDev",
+  "author": "amtixdev",
   "license": "MIT",
-  "dependencies": {
-    "fs": "^0.0.1-security",
-    "path": "^0.12.7"
+  "homepage": "https://github.com/Creative-Framework/dev-database#readme",
+  "bugs": {
+    "url": "https://github.com/Creative-Framework/dev-database/issues"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^5.8.3"
   }
 }
