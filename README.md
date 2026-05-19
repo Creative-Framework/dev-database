@@ -1,7 +1,6 @@
-
 # Dev-Database
 
-A Lightning-Fast, Lightweight JSON File-Based Database
+### ⚡ A High-Performance, Typed JSON File-Based Database
 
 <div align="center">
   <p>
@@ -9,240 +8,318 @@ A Lightning-Fast, Lightweight JSON File-Based Database
     <a href="https://www.npmjs.com/package/dev-database"><img src="https://img.shields.io/npm/v/dev-database.svg?maxAge=3600" alt="npm version" /></a>
     <a href="https://www.npmjs.com/package/dev-database"><img src="https://img.shields.io/npm/dt/dev-database.svg?maxAge=3600" alt="npm downloads" /></a>
   </p>
-</div>  
+</div>
 
-## Overview
+---
 
-`Dev-Database` is a high-performance, lightweight npm package that offers a fast and efficient way to perform database operations using JSON files. It's designed for developers who need a quick, easy-to-use solution for storing and retrieving data. Now with enhanced speed and asynchronous operations, it’s perfect for both small-scale projects and lightweight Discord bots.
+## ✨ Features
 
-  
+- 🏎️ **Blazing Fast** — In-memory data with debounced disk writes
+- 📝 **Full TypeScript Support** — Built-in types with generics & auto-completion
+- 🔔 **Event System** — Listen to `set`, `delete`, `clear`, `ready`, `save`, `error`
+- 📂 **Dot Notation** — Access nested keys like `users.123.name`
+- 📦 **Collections** — MongoDB-like insert/find/update/delete with query operators
+- ⏱️ **TTL (Time-To-Live)** — Auto-expiring keys
+- ➕ **Math Operations** — `add`, `subtract`, `multiply`, `divide`
+- 📋 **Array Operations** — `push`, `pull`, `includes`
+- 💾 **Backup & Restore** — Save/load snapshots
+- 🚫 **Zero Dependencies** — Only uses Node.js built-in modules
 
-## Features
+---
 
--  **Blazing Fast**: Optimized for handling large datasets (e.g., 100,000+ keys) in milliseconds.
-
--  **Easy-to-Use API**: Simple methods for CRUD operations.
-
--  **In-Memory Efficiency**: Data is processed in memory for ultra-fast reads and writes.
-
--  **Persistent Storage**: Periodic and asynchronous writes to a JSON file.
-
--  **Bulk Operations**: Quickly set multiple key-value pairs in one call.
-
-  
-
-## Installation
-
-Install `Dev-Database` via npm:
+## 📦 Installation
 
 ```bash
-
-npm  install  dev-database
-
+npm install dev-database
 ```
 
-  
+---
 
-## Getting Started
+## 🚀 Quick Start
 
-Create an instance of `DevDatabase` by providing the path to your JSON file.
-
-  
-
-### Example Usage:
-
+### JavaScript
 ```js
+const DevDatabase = require('dev-database').default;
 
-const  DevDatabase  =  require('dev-database');
+const db = new DevDatabase('database.json');
 
-  
+db.set('name', 'Ameen');
+console.log(db.get('name')); // 'Ameen'
+```
 
-// Create an instance of DevDatabase
+### TypeScript
+```ts
+import DevDatabase from 'dev-database';
 
-const  db  =  new  DevDatabase('database.json');
+const db = new DevDatabase('database.json');
 
-  
+db.set('name', 'Ameen');
+console.log(db.get<string>('name')); // 'Ameen'
+```
 
-// Set a key-value pair
+---
 
-db.set('key1',  'value1');
+## ⚙️ Configuration
 
-console.log(db.get('key1')); // Output: 'value1'
+```ts
+const db = new DevDatabase({
+  filePath: './data/mydb.json',  // Database file path
+  autoSaveInterval: 300,         // Debounce save interval (ms)
+  pretty: true,                  // Pretty print JSON
+  autoCreate: true,              // Auto-create file & directories
+  separator: '.',                // Nested key separator
+});
+```
 
-  
+---
+
+## 📖 API Reference
+
+### Core CRUD
+
+```ts
+// Set a value
+db.set('key', 'value');
+
+// Get a value (with optional default)
+db.get('key');
+db.get('missing', 'fallback');
+db.get<number>('score', 0);
+
+// Check if key exists
+db.has('key'); // true
 
 // Delete a key
-
-db.delete('key1');
-
-  
-
-// Bulk set key-value pairs
-
-db.bulkSet([
-
-['key2',  'value2'],
-
-['key3',  'value3']
-
-]);
-
-  
-
-// Retrieve a value with a default fallback
-
-console.log(db.get('nonexistentKey',  'defaultValue')); // Output: 'defaultValue'
-
-  
+db.delete('key'); // true
 
 // Clear all data
-
 db.clear();
-
-  
-
-// Close the database (force save to disk)
-
-db.close();
-
 ```
 
-  
+### 📂 Dot Notation (Nested Keys)
 
-## Methods
+```ts
+db.set('users.123.name', 'Ameen');
+db.set('users.123.level', 10);
 
-  
-
-### `set(key, value)`
-
-Sets a key-value pair in the database.
-
-```js
-
-db.set('key',  'value');
-
+db.get('users.123.name');   // 'Ameen'
+db.has('users.123.level');  // true
+db.delete('users.123.level');
 ```
 
-  
+### ➕ Math Operations
 
-### `get(key, defaultValue = null)`
+```ts
+db.set('coins', 100);
 
-Retrieves the value associated with a key, or returns `defaultValue` if the key doesn't exist.
-
-```js
-
-const  value  =  db.get('key',  'default');
-
+db.add('coins', 50);       // 150
+db.subtract('coins', 30);  // 120
+db.multiply('coins', 2);   // 240
+db.divide('coins', 4);     // 60
 ```
 
-  
+### 📋 Array Operations
 
-### `delete(key)`
+```ts
+db.set('inventory', []);
 
-Deletes a key-value pair from the database.
-
-```js
-
-db.delete('key');
-
+db.push('inventory', 'sword', 'shield');
+db.pull('inventory', 'sword');
+db.includes('inventory', 'shield'); // true
 ```
 
-  
+### ⏱️ TTL (Auto-Expiring Keys)
 
-### `bulkSet(entries)`
+```ts
+// Expires after 1 hour
+db.set('session', { token: 'abc123' }, { ttl: 3600000 });
 
-Sets multiple key-value pairs in a single operation.
+// Later...
+db.get('session'); // null (after expiration)
+```
 
-```js
+### 📦 Bulk Operations
 
+```ts
+// Set multiple keys at once
 db.bulkSet([
-
-['key1',  'value1'],
-
-['key2',  'value2']
-
+  ['key1', 'value1'],
+  ['key2', 'value2'],
 ]);
 
+// Or with an object
+db.bulkSet({ key1: 'value1', key2: 'value2' });
+
+// Get multiple keys
+db.bulkGet(['key1', 'key2']);
+
+// Delete multiple keys
+db.bulkDelete(['key1', 'key2']);
 ```
 
-  
+---
 
-### `clear()`
+## 📦 Collections (MongoDB-like)
 
-Clears all key-value pairs in the database.
+```ts
+interface User {
+  name: string;
+  age: number;
+  role: string;
+}
 
-```js
+const users = db.collection<User>('users');
 
-db.clear();
+// Insert
+users.insert({ name: 'Ameen', age: 20, role: 'admin' });
+users.insertMany([
+  { name: 'Sara', age: 25, role: 'user' },
+  { name: 'Ali', age: 18, role: 'user' },
+]);
 
+// Find with query operators
+users.find({ age: { $gt: 18 } });
+users.find({ role: 'admin' });
+users.find({}, { sort: { age: -1 }, limit: 10 });
+users.findOne({ name: 'Ameen' });
+users.findById('abc-123');
+
+// Update
+users.update({ name: 'Ameen' }, { age: 21 });
+users.update({ role: 'user' }, { $inc: { age: 1 } });
+users.update({ name: 'Sara' }, { $push: { badges: 'vip' } });
+
+// Delete
+users.delete({ role: 'user' });
+users.deleteById('abc-123');
+
+// Utilities
+users.count({ role: 'admin' });
+users.all();
+users.drop();
 ```
 
-  
+### Query Operators
 
-### `close()`
+| Operator   | Description              | Example                          |
+|------------|--------------------------|----------------------------------|
+| `$gt`      | Greater than             | `{ age: { $gt: 18 } }`          |
+| `$gte`     | Greater than or equal    | `{ age: { $gte: 18 } }`         |
+| `$lt`      | Less than                | `{ age: { $lt: 30 } }`          |
+| `$lte`     | Less than or equal       | `{ age: { $lte: 30 } }`         |
+| `$ne`      | Not equal                | `{ role: { $ne: 'admin' } }`    |
+| `$in`      | Value in array           | `{ role: { $in: ['a', 'b'] } }` |
+| `$nin`     | Value not in array       | `{ role: { $nin: ['x'] } }`     |
+| `$exists`  | Key exists               | `{ email: { $exists: true } }`  |
+| `$regex`   | Regex match              | `{ name: { $regex: '^A' } }`    |
 
-Forces the database to save all data to disk immediately.
+---
 
-```js
+## 🔔 Events
 
-db.close();
+```ts
+db.on('ready', () => {
+  console.log('Database loaded!');
+});
 
+db.on('set', (key, value, oldValue) => {
+  console.log(`${key} changed from ${oldValue} to ${value}`);
+});
+
+db.on('delete', (key, value) => {
+  console.log(`${key} was deleted (was: ${value})`);
+});
+
+db.on('clear', () => {
+  console.log('Database cleared!');
+});
+
+db.on('save', () => {
+  console.log('Data saved to disk!');
+});
+
+db.on('error', (error) => {
+  console.error('Database error:', error);
+});
 ```
 
-  
+---
+
+## 💾 Backup & Restore
+
+```ts
+// Create a backup
+await db.backup('./backups/db-backup.json');
+
+// Restore from backup
+await db.restore('./backups/db-backup.json');
+```
 
 ---
 
-  
+## 🛠️ Utility Methods
 
-## Advanced Features
+```ts
+db.keys();                    // ['key1', 'key2', ...]
+db.values();                  // [value1, value2, ...]
+db.entries();                 // [['key1', value1], ...]
+db.size;                      // 42
+db.toJSON();                  // Deep clone of all data
+db.forEach((key, value) => { ... });
+db.filter((key, value) => value > 10);
+db.map((key, value) => `${key}=${value}`);
 
-  
-
-### In-Memory Processing
-
-All CRUD operations happen in memory for maximum performance, with asynchronous writes to disk.
-
-  
-
-### Debounced Saving
-
-Changes to the database are saved to the JSON file in batches every 500ms, reducing the overhead of frequent file writes.
-
-  
-
----
-
-  
-
-## Warning!
-
-- If the JSON file doesn’t exist, `Dev-Database` will create a new one.
-
-- Ensure you close the database with `close()` when shutting down your application to prevent data loss.
-
-  
+await db.save();              // Force save now
+await db.close();             // Save & cleanup
+await db.destroy();           // Delete database file
+```
 
 ---
 
-  
+## 🎮 Discord Bot Example
 
-### Ideal Use Cases
+```ts
+import DevDatabase from 'dev-database';
 
--  **Discord Bots**: Store server-specific configurations, user preferences, or leveling systems.
+const db = new DevDatabase('./data/bot.json');
+const users = db.collection<{ name: string; level: number; xp: number }>('users');
 
--  **Small Projects**: Perfect for personal or lightweight development projects.
+// On message
+function handleMessage(userId: string, username: string) {
+  let user = users.findOne({ name: username });
 
--  **Prototyping**: Quickly implement a simple database without external dependencies.
+  if (!user) {
+    users.insert({ name: username, level: 1, xp: 0 });
+  } else {
+    users.update({ _id: user._id }, { $inc: { xp: 10 } });
 
-  
+    if (user.xp >= user.level * 100) {
+      users.update({ _id: user._id }, {
+        $inc: { level: 1 },
+        $set: { xp: 0 }
+      });
+    }
+  }
+}
+```
 
 ---
 
-  
+## ⚠️ Important Notes
 
-### Contact / Need Help?
+- Always call `db.close()` before shutting down to prevent data loss.
+- If the JSON file doesn't exist, it will be auto-created.
+- All data is held in memory — ideal for small to medium datasets.
+- Collections data is stored inside the same JSON file.
 
-Join my Discord Developers Server:
+---
 
-[https://discord.gg/FqceHDU8QP](https://discord.gg/FqceHDU8QP)
+## 📜 License
+
+[MIT](./LICENSE)
+
+---
+
+### 💬 Need Help?
+
+Join our Discord: [https://discord.gg/FqceHDU8QP](https://discord.gg/FqceHDU8QP)
