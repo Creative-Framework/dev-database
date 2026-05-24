@@ -1,17 +1,17 @@
-/**
- * DevDatabase - Core database class.
- * High-performance, typed JSON file-based database with events, dot notation,
- * collections, TTL, math/array ops, backup/restore.
- */
-
-import * as fs from 'fs';
-import * as path from 'path';
 import { EventEmitter } from './EventEmitter';
 import { Collection } from './Collection';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   deepClone, getNestedValue, setNestedValue,
   deleteNestedValue, hasNestedValue, ensureDirectoryExists,
 } from './utils';
+import {
+  StorageAdapter,
+  DriverType,
+  resolveAdapter,
+  JsonFileAdapter,
+} from './adapters';
 
 /** Events emitted by DevDatabase. */
 export type DatabaseEvents = {
@@ -26,16 +26,30 @@ export type DatabaseEvents = {
 
 /** Configuration options for DevDatabase. */
 export interface DatabaseOptions {
-  /** Path to the JSON database file. */
+  /** Storage driver (default: 'json'). */
+  driver?: DriverType;
+  /** Path to the database file (for json/sqlite drivers). */
   filePath?: string;
   /** Auto-save debounce time in ms (default: 300). */
   autoSaveInterval?: number;
-  /** Pretty print JSON output (default: true). */
+  /** Pretty print JSON output (default: true, json driver only). */
   pretty?: boolean;
-  /** Auto-create file and directories (default: true). */
+  /** Auto-create file and directories (default: true, json driver only). */
   autoCreate?: boolean;
   /** Separator for nested keys (default: '.'). */
   separator?: string;
+  /** Custom adapter instance (overrides `driver`). */
+  adapter?: StorageAdapter;
+
+  // MySQL-specific options
+  host?: string;
+  port?: number;
+  user?: string;
+  password?: string;
+  database?: string;
+
+  // Table name for mysql/sqlite
+  tableName?: string;
 }
 
 /** Options for the set method. */
@@ -51,22 +65,30 @@ interface TtlEntry {
 }
 
 export class DevDatabase extends EventEmitter<DatabaseEvents> {
-  private filePath: string;
+  private adapter: StorageAdapter;
   private data: Record<string, unknown> = {};
   private ttlData: Map<string, TtlEntry> = new Map();
   private saveTimeout: NodeJS.Timeout | null = null;
   private isSaving = false;
   private isReady = false;
-  private options: Required<DatabaseOptions>;
+  private options: {
+    filePath: string;
+    autoSaveInterval: number;
+    pretty: boolean;
+    autoCreate: boolean;
+    separator: string;
+    driver: string;
+    tableName: string;
+  };
   private collections: Map<string, Collection> = new Map();
 
-  constructor(filePathOrOptions?: string | DatabaseOptions) {
+  constructor(options?: DatabaseOptions | string) {
     super();
 
     const opts: DatabaseOptions =
-      typeof filePathOrOptions === 'string'
-        ? { filePath: filePathOrOptions }
-        : filePathOrOptions ?? {};
+      typeof options === 'string'
+        ? { filePath: options, driver: 'json' }
+        : options ?? {};
 
     this.options = {
       filePath: opts.filePath ?? './database.json',
@@ -74,53 +96,104 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
       pretty: opts.pretty ?? true,
       autoCreate: opts.autoCreate ?? true,
       separator: opts.separator ?? '.',
+      driver: opts.driver ?? 'json',
+      tableName: opts.tableName ?? 'dev_database',
     };
 
-    this.filePath = path.resolve(this.options.filePath);
-    this._loadSync();
-  }
+    this.adapter = opts.adapter ?? resolveAdapter(opts.driver ?? 'json');
 
-  /** Synchronous load for constructor reliability. */
-  private _loadSync(): void {
-    try {
-      if (fs.existsSync(this.filePath)) {
-        const raw = fs.readFileSync(this.filePath, 'utf8');
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          this.data = parsed;
-        }
-        // Restore TTL entries
-        if (this.data.__ttl__ && typeof this.data.__ttl__ === 'object') {
-          const ttlObj = this.data.__ttl__ as Record<string, TtlEntry>;
-          const now = Date.now();
-          for (const [key, entry] of Object.entries(ttlObj)) {
-            if (entry.expiresAt > now) {
-              this.ttlData.set(key, entry);
-            } else {
-              deleteNestedValue(this.data, key);
-            }
-          }
-          delete this.data.__ttl__;
-        }
-      } else if (this.options.autoCreate) {
-        ensureDirectoryExists(path.dirname(this.filePath));
-        fs.writeFileSync(this.filePath, '{}', 'utf8');
-      }
-      this.isReady = true;
-      this.emit('ready');
-    } catch (error) {
-      this.emit('error', error instanceof Error ? error : new Error(String(error)));
+    // JSON adapter: auto-init synchronously (backward compatible)
+    // SQL adapters: user must call await db.init()
+    if (this.adapter instanceof JsonFileAdapter) {
+      this._initSync();
     }
   }
 
-  /** Schedule a debounced save to disk. */
+  /**
+   * Initialize the database (connect to storage, load data).
+   * Required for non-JSON drivers (mysql, sqlite).
+   * Safe to call multiple times.
+   */
+  async init(): Promise<void> {
+    if (this.isReady) return;
+
+    await this.adapter.init(this._getAdapterOptions());
+
+    try {
+      const loaded = await this.adapter.load();
+      if (loaded && typeof loaded === 'object' && !Array.isArray(loaded)) {
+        this.data = loaded;
+      }
+    } catch {
+      this.data = {};
+    }
+
+    // Restore TTL entries
+    if (this.data.__ttl__ && typeof this.data.__ttl__ === 'object') {
+      const ttlObj = this.data.__ttl__ as Record<string, TtlEntry>;
+      const now = Date.now();
+      for (const [key, entry] of Object.entries(ttlObj)) {
+        if (entry.expiresAt > now) {
+          this.ttlData.set(key, entry);
+        } else {
+          deleteNestedValue(this.data, key);
+        }
+      }
+      delete this.data.__ttl__;
+    }
+
+    this.isReady = true;
+    this.emit('ready');
+  }
+
+  /** JSON adapter: sync init for backward compatibility. */
+  private _initSync(): void {
+    try {
+      this.adapter.init(this._getAdapterOptions());
+      const loaded = this.adapter.load() as unknown as Record<string, unknown>;
+      if (loaded && typeof loaded === 'object' && !Array.isArray(loaded)) {
+        this.data = loaded;
+      }
+    } catch {
+      this.data = {};
+    }
+
+    // Restore TTL entries
+    if (this.data.__ttl__ && typeof this.data.__ttl__ === 'object') {
+      const ttlObj = this.data.__ttl__ as Record<string, TtlEntry>;
+      const now = Date.now();
+      for (const [key, entry] of Object.entries(ttlObj)) {
+        if (entry.expiresAt > now) {
+          this.ttlData.set(key, entry);
+        } else {
+          deleteNestedValue(this.data, key);
+        }
+      }
+      delete this.data.__ttl__;
+    }
+
+    this.isReady = true;
+    this.emit('ready');
+  }
+
+  /** Build adapter options from current config. */
+  private _getAdapterOptions(): Record<string, unknown> {
+    return {
+      filePath: this.options.filePath,
+      pretty: this.options.pretty,
+      autoCreate: this.options.autoCreate,
+      tableName: this.options.tableName,
+    };
+  }
+
+  /** Schedule a debounced save to storage. */
   private _scheduleSave(): void {
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
     this.saveTimeout = setTimeout(() => this._save(), this.options.autoSaveInterval);
   }
 
-  /** Save data to disk. */
-  private _save(): void {
+  /** Persist data to storage via adapter. */
+  private async _save(): Promise<void> {
     if (this.isSaving) return;
     this.isSaving = true;
 
@@ -141,10 +214,7 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
         }
       }
 
-      const json = this.options.pretty
-        ? JSON.stringify(toSave, null, 2)
-        : JSON.stringify(toSave);
-      fs.writeFileSync(this.filePath, json, 'utf8');
+      await this.adapter.save(toSave);
       this.emit('save');
     } catch (error) {
       this.emit('error', error instanceof Error ? error : new Error(String(error)));
@@ -155,13 +225,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
 
   // ─── Core CRUD ───
 
-  /**
-   * Set a value by key. Supports dot notation for nested keys.
-   * @param key - The key (supports dot notation like `'user.name'`).
-   * @param value - The value to store.
-   * @param options - Optional settings (e.g., TTL).
-   * @returns `this` for chaining.
-   */
   set(key: string, value: unknown, options?: SetOptions): this {
     const oldValue = this.get(key);
 
@@ -183,12 +246,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
     return this;
   }
 
-  /**
-   * Get a value by key. Supports dot notation.
-   * @param key - The key to retrieve.
-   * @param defaultValue - Fallback value if key doesn't exist.
-   * @returns The stored value or default.
-   */
   get<T = unknown>(key: string, defaultValue?: T): T {
     // Check TTL
     if (this.ttlData.has(key)) {
@@ -209,10 +266,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
     return (value !== undefined ? value : defaultValue) as T;
   }
 
-  /**
-   * Check if a key exists.
-   * @param key - The key to check (supports dot notation).
-   */
   has(key: string): boolean {
     // Check TTL expiration
     if (this.ttlData.has(key)) {
@@ -229,11 +282,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
     return key in this.data;
   }
 
-  /**
-   * Delete a key. Supports dot notation.
-   * @param key - The key to delete.
-   * @returns `true` if the key existed and was deleted.
-   */
   delete(key: string): boolean {
     const value = this.get(key);
     let deleted: boolean;
@@ -255,10 +303,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
     return deleted;
   }
 
-  /**
-   * Clear all data from the database.
-   * @returns `this` for chaining.
-   */
   clear(): this {
     this.data = {};
     this.ttlData.clear();
@@ -269,40 +313,20 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
 
   // ─── Math Operations ───
 
-  /**
-   * Add a number to a stored value.
-   * @param key - The key (creates it with 0 if doesn't exist).
-   * @param amount - Amount to add (default: 1).
-   */
   add(key: string, amount: number = 1): this {
     const current = this.get<number>(key, 0);
     return this.set(key, (typeof current === 'number' ? current : 0) + amount);
   }
 
-  /**
-   * Subtract a number from a stored value.
-   * @param key - The key.
-   * @param amount - Amount to subtract (default: 1).
-   */
   subtract(key: string, amount: number = 1): this {
     return this.add(key, -amount);
   }
 
-  /**
-   * Multiply a stored value by a number.
-   * @param key - The key.
-   * @param factor - The multiplier.
-   */
   multiply(key: string, factor: number): this {
     const current = this.get<number>(key, 0);
     return this.set(key, (typeof current === 'number' ? current : 0) * factor);
   }
 
-  /**
-   * Divide a stored value by a number.
-   * @param key - The key.
-   * @param divisor - The divisor (must not be 0).
-   */
   divide(key: string, divisor: number): this {
     if (divisor === 0) throw new Error('Cannot divide by zero');
     const current = this.get<number>(key, 0);
@@ -311,12 +335,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
 
   // ─── Array Operations ───
 
-  /**
-   * Push value(s) to an array stored at key.
-   * Creates the array if it doesn't exist.
-   * @param key - The key.
-   * @param values - Value(s) to push.
-   */
   push(key: string, ...values: unknown[]): this {
     const current = this.get<unknown[]>(key, []);
     const arr = Array.isArray(current) ? [...current] : [];
@@ -324,11 +342,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
     return this.set(key, arr);
   }
 
-  /**
-   * Remove value(s) from an array stored at key.
-   * @param key - The key.
-   * @param values - Value(s) to remove.
-   */
   pull(key: string, ...values: unknown[]): this {
     const current = this.get<unknown[]>(key, []);
     if (!Array.isArray(current)) return this;
@@ -336,11 +349,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
     return this.set(key, filtered);
   }
 
-  /**
-   * Check if an array at key includes a value.
-   * @param key - The key.
-   * @param value - The value to check for.
-   */
   includes(key: string, value: unknown): boolean {
     const current = this.get<unknown[]>(key, []);
     return Array.isArray(current) && current.includes(value);
@@ -348,10 +356,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
 
   // ─── Bulk Operations ───
 
-  /**
-   * Set multiple key-value pairs at once.
-   * @param entries - Array of `[key, value]` tuples or an object.
-   */
   bulkSet(entries: [string, unknown][] | Record<string, unknown>): this {
     const pairs = Array.isArray(entries)
       ? entries
@@ -363,11 +367,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
     return this;
   }
 
-  /**
-   * Get multiple values by keys.
-   * @param keys - Array of keys.
-   * @returns Object with key-value pairs.
-   */
   bulkGet(keys: string[]): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     for (const key of keys) {
@@ -376,11 +375,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
     return result;
   }
 
-  /**
-   * Delete multiple keys at once.
-   * @param keys - Array of keys to delete.
-   * @returns Number of keys deleted.
-   */
   bulkDelete(keys: string[]): number {
     let count = 0;
     for (const key of keys) {
@@ -391,18 +385,6 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
 
   // ─── Collection System ───
 
-  /**
-   * Get or create a typed collection (MongoDB-like).
-   * @param name - Collection name.
-   * @returns A `Collection` instance.
-   *
-   * @example
-   * ```ts
-   * interface User { name: string; age: number }
-   * const users = db.collection<User>('users');
-   * users.insert({ name: 'Ameen', age: 20 });
-   * ```
-   */
   collection<T extends Record<string, unknown> = Record<string, unknown>>(
     name: string
   ): Collection<T> {
@@ -420,24 +402,15 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
 
   // ─── Backup & Restore ───
 
-  /**
-   * Create a backup of the database.
-   * @param backupPath - Path to save the backup file.
-   */
   async backup(backupPath: string): Promise<void> {
+    const json = JSON.stringify(this.data, null, 2);
     const resolvedPath = path.resolve(backupPath);
     ensureDirectoryExists(path.dirname(resolvedPath));
-    const json = JSON.stringify(this.data, null, 2);
     await fs.promises.writeFile(resolvedPath, json, 'utf8');
   }
 
-  /**
-   * Restore the database from a backup file.
-   * @param backupPath - Path to the backup file.
-   */
   async restore(backupPath: string): Promise<void> {
-    const resolvedPath = path.resolve(backupPath);
-    const raw = await fs.promises.readFile(resolvedPath, 'utf8');
+    const raw = await fs.promises.readFile(backupPath, 'utf8');
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       this.data = parsed;
@@ -447,49 +420,28 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
 
   // ─── Utility Methods ───
 
-  /**
-   * Get all keys in the database.
-   */
   keys(): string[] {
     return Object.keys(this.data);
   }
 
-  /**
-   * Get all values in the database.
-   */
   values(): unknown[] {
     return Object.values(this.data);
   }
 
-  /**
-   * Get all key-value entries.
-   */
   entries(): [string, unknown][] {
     return Object.entries(this.data);
   }
 
-  /**
-   * Get the total number of top-level keys.
-   */
   get size(): number {
     return Object.keys(this.data).length;
   }
 
-  /**
-   * Iterate over all entries with a callback.
-   * @param callback - Function called for each `(key, value)` pair.
-   */
   forEach(callback: (key: string, value: unknown) => void): void {
     for (const [key, value] of Object.entries(this.data)) {
       callback(key, value);
     }
   }
 
-  /**
-   * Filter entries by a predicate function.
-   * @param predicate - Function that returns `true` to include the entry.
-   * @returns Object with matching entries.
-   */
   filter(predicate: (key: string, value: unknown) => boolean): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(this.data)) {
@@ -500,54 +452,43 @@ export class DevDatabase extends EventEmitter<DatabaseEvents> {
     return result;
   }
 
-  /**
-   * Map over all entries with a transform function.
-   * @param transform - Function called for each `(key, value)` pair.
-   * @returns Array of transformed values.
-   */
   map<R>(transform: (key: string, value: unknown) => R): R[] {
     return Object.entries(this.data).map(([key, value]) => transform(key, value));
   }
 
-  /**
-   * Get a deep clone of all the raw data.
-   */
   toJSON(): Record<string, unknown> {
     return deepClone(this.data);
   }
 
-  /**
-   * Whether the database is loaded and ready.
-   */
   get ready(): boolean {
     return this.isReady;
   }
 
   /**
-   * Force save all data to disk immediately.
+   * Force save all data to storage immediately.
    */
   async save(): Promise<void> {
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
-    this._save();
+    await this._save();
   }
 
   /**
-   * Save and close the database. Call this before shutting down.
+   * Close the database — save and disconnect from storage.
+   * Call this before shutting down.
    */
   async close(): Promise<void> {
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
-    this._save();
+    await this._save();
+    await this.adapter.close();
     this.removeAllListeners();
     this.collections.clear();
   }
 
   /**
-   * Destroy the database — deletes the file from disk.
+   * Destroy the database — delete all stored data.
    */
   async destroy(): Promise<void> {
     await this.close();
-    if (fs.existsSync(this.filePath)) {
-      await fs.promises.unlink(this.filePath);
-    }
+    await this.adapter.destroy();
   }
 }

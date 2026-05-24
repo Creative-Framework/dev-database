@@ -1,6 +1,6 @@
 # Dev-Database
 
-### ⚡ A High-Performance, Typed JSON File-Based Database
+### ⚡ A High-Performance, Typed Multi-Driver Database
 
 <div align="center">
   <p>
@@ -14,7 +14,8 @@
 
 ## ✨ Features
 
-- 🏎️ **Blazing Fast** — In-memory data with debounced disk writes
+- 🏎️ **Blazing Fast** — In-memory data with debounced writes
+- 🔌 **Multi-Driver** — JSON, MySQL, SQLite — same API
 - 📝 **Full TypeScript Support** — Built-in types with generics & auto-completion
 - 🔔 **Event System** — Listen to `set`, `delete`, `clear`, `ready`, `save`, `error`
 - 📂 **Dot Notation** — Access nested keys like `users.123.name`
@@ -23,7 +24,7 @@
 - ➕ **Math Operations** — `add`, `subtract`, `multiply`, `divide`
 - 📋 **Array Operations** — `push`, `pull`, `includes`
 - 💾 **Backup & Restore** — Save/load snapshots
-- 🚫 **Zero Dependencies** — Only uses Node.js built-in modules
+- 🚫 **Zero Core Dependencies** — Only uses Node.js built-in modules (JSON driver)
 
 ---
 
@@ -33,6 +34,14 @@
 npm install dev-database
 ```
 
+### Optional Drivers
+
+| Driver  | Install                        |
+|---------|--------------------------------|
+| JSON    | Built-in (no extra install)    |
+| MySQL   | `npm install mysql2`           |
+| SQLite  | `npm install better-sqlite3`   |
+
 ---
 
 ## 🚀 Quick Start
@@ -41,7 +50,8 @@ npm install dev-database
 ```js
 const DevDatabase = require('dev-database').default;
 
-const db = new DevDatabase('database.json');
+// JSON driver (default)
+const db = new DevDatabase({ driver: 'json', filePath: './database.json' });
 
 db.set('name', 'Ameen');
 console.log(db.get('name')); // 'Ameen'
@@ -51,7 +61,7 @@ console.log(db.get('name')); // 'Ameen'
 ```ts
 import DevDatabase from 'dev-database';
 
-const db = new DevDatabase('database.json');
+const db = new DevDatabase({ driver: 'json', filePath: './database.json' });
 
 db.set('name', 'Ameen');
 console.log(db.get<string>('name')); // 'Ameen'
@@ -61,15 +71,49 @@ console.log(db.get<string>('name')); // 'Ameen'
 
 ## ⚙️ Configuration
 
+### JSON Driver (default)
 ```ts
 const db = new DevDatabase({
-  filePath: './data/mydb.json',  // Database file path
-  autoSaveInterval: 300,         // Debounce save interval (ms)
-  pretty: true,                  // Pretty print JSON
-  autoCreate: true,              // Auto-create file & directories
-  separator: '.',                // Nested key separator
+  driver: 'json',
+  filePath: './data/database.json',  // Default: './database.json'
+  autoSaveInterval: 300,             // Debounce save interval (ms)
+  pretty: true,                      // Pretty print JSON
+  autoCreate: true,                  // Auto-create file & directories
+  separator: '.',                    // Nested key separator
 });
 ```
+
+JSON driver auto-loads data in the constructor — no need to call `init()`.
+
+### MySQL Driver
+```ts
+const db = new DevDatabase({
+  driver: 'mysql',
+  host: 'localhost',
+  port: 3306,
+  user: 'root',
+  password: 'password',
+  database: 'myapp',
+  tableName: 'dev_database',        // Table for key-value storage
+  separator: '.',
+});
+
+await db.init();  // Required: connect & load data
+```
+
+### SQLite Driver
+```ts
+const db = new DevDatabase({
+  driver: 'sqlite',
+  filePath: './data/database.sqlite',
+  tableName: 'dev_database',        // Table for key-value storage
+  separator: '.',
+});
+
+await db.init();  // Required: connect & load data
+```
+
+> **Note:** MySQL and SQLite drivers require `await db.init()` after construction to connect and load data.
 
 ---
 
@@ -235,7 +279,7 @@ db.on('clear', () => {
 });
 
 db.on('save', () => {
-  console.log('Data saved to disk!');
+  console.log('Data saved!');
 });
 
 db.on('error', (error) => {
@@ -246,6 +290,8 @@ db.on('error', (error) => {
 ---
 
 ## 💾 Backup & Restore
+
+Works with all drivers — exports/imports data as JSON.
 
 ```ts
 // Create a backup
@@ -270,8 +316,8 @@ db.filter((key, value) => value > 10);
 db.map((key, value) => `${key}=${value}`);
 
 await db.save();              // Force save now
-await db.close();             // Save & cleanup
-await db.destroy();           // Delete database file
+await db.close();             // Save & disconnect
+await db.destroy();           // Delete all stored data
 ```
 
 ---
@@ -281,7 +327,7 @@ await db.destroy();           // Delete database file
 ```ts
 import DevDatabase from 'dev-database';
 
-const db = new DevDatabase('./data/bot.json');
+const db = new DevDatabase({ driver: 'json', filePath: './data/bot.json' });
 const users = db.collection<{ name: string; level: number; xp: number }>('users');
 
 // On message
@@ -305,12 +351,35 @@ function handleMessage(userId: string, username: string) {
 
 ---
 
+## 📦 Custom Adapter
+
+You can provide your own adapter:
+
+```ts
+import { DevDatabase, StorageAdapter } from 'dev-database';
+
+class MyCustomAdapter implements StorageAdapter {
+  readonly name = 'custom';
+
+  async init(options: Record<string, unknown>): Promise<void> { /* ... */ }
+  async load(): Promise<Record<string, unknown>> { /* ... */ }
+  async save(data: Record<string, unknown>): Promise<void> { /* ... */ }
+  async close(): Promise<void> { /* ... */ }
+  async destroy(): Promise<void> { /* ... */ }
+}
+
+const db = new DevDatabase({ adapter: new MyCustomAdapter() });
+```
+
+---
+
 ## ⚠️ Important Notes
 
-- Always call `db.close()` before shutting down to prevent data loss.
-- If the JSON file doesn't exist, it will be auto-created.
+- Always call `await db.close()` before shutting down to prevent data loss.
+- **JSON driver** auto-loads in the constructor (backward compatible).
+- **MySQL/SQLite drivers** require `await db.init()` after construction.
+- For JSON, the file defaults to `./database.json`.
 - All data is held in memory — ideal for small to medium datasets.
-- Collections data is stored inside the same JSON file.
 
 ---
 

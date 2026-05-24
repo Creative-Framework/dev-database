@@ -1,7 +1,7 @@
 {
   "name": "dev-database",
-  "version": "2.0.0",
-  "description": "A high-performance, typed JSON file-based database with events, collections, dot notation, TTL, math/array operations, and zero dependencies. Perfect for Discord bots, small projects, and prototyping.",
+  "version": "2.1.0",
+  "description": "A high-performance, typed multi-driver database with events, collections, dot notation, TTL, math/array operations, and zero core dependencies. Supports JSON, MySQL, SQLite. Perfect for Discord bots, small projects, and prototyping.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -29,6 +29,9 @@
     "database",
     "json",
     "json-database",
+    "mysql",
+    "sqlite",
+    "sql",
     "db",
     "storage",
     "key-value",
@@ -42,7 +45,8 @@
     "dot-notation",
     "nosql",
     "embedded-database",
-    "file-database"
+    "file-database",
+    "multi-driver"
   ],
   "author": "amtixdev",
   "license": "MIT",

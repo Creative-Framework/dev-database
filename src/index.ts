@@ -1,13 +1,22 @@
-/**
- * dev-database — A high-performance, typed JSON file-based database.
- *
- * @packageDocumentation
- * @module dev-database
- */
-
 export { DevDatabase } from './DevDatabase';
 export { Collection } from './Collection';
 export { EventEmitter } from './EventEmitter';
+
+// Export adapters
+export {
+  StorageAdapter,
+  JsonFileAdapter,
+  MysqlAdapter,
+  SqliteAdapter,
+  resolveAdapter,
+} from './adapters';
+
+export type {
+  JsonFileAdapterOptions,
+  MysqlAdapterOptions,
+  SqliteAdapterOptions,
+  DriverType,
+} from './adapters';
 
 // Re-export types
 export type {
